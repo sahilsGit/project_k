@@ -14,65 +14,62 @@ import {
 
 // Enum for message types
 const messageTypeEnum = [
-  "root_question",     // Initial question that starts the conversation
-  "user_question",     // Follow-up questions from user
-  "llm_response",      // AI responses
-  "suggested_question", // AI generated follow-up questions
-  "selected_suggestion" // Track if this was an AI suggestion that user selected
+  "root_query",  
+  "user_query",  
+  "suggested_query", 
 ] as const;
 
-// Users Table
+/**
+ * DO NOT EXPORT
+ * 
+ */
+type PrivateNonEmptyString = string & { __nonEmptyStringBrand: unknown };
+
+export function toNonEmptyString(value: string): PrivateNonEmptyString {
+  if (!value || value.trim() === '') {
+    throw new Error('String cannot be empty');
+  }
+  return value as PrivateNonEmptyString;
+}
+
 const users = pgTable("users", {
   id: serial("id").primaryKey(),
   email: varchar("email", { length: 255 }).notNull().unique(),
-  name: varchar("name", { length: 100 }),
+  name: varchar("name", { length: 100 }).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-// Conversations Table
 const conversations = pgTable("conversations", {
-  id: serial("id").primaryKey(),
+  id: uuid("id").primaryKey().defaultRandom(),
   userId: integer("user_id")
-    .references(() => users.id, { onDelete: "cascade" })
-    .notNull(),
-  title: varchar("title", { length: 255 }),
-  rootNodeId: uuid("root_node_id"),
+      .references(() => users.id, { onDelete: "cascade" })
+      .notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  rootNodeId: uuid("root_node_id"), 
+  isInitialized: boolean("is_initialized").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+})
 
-// Conversation Nodes Table
 const conversationNodes = pgTable("conversation_nodes", {
   id: uuid("id").primaryKey().defaultRandom(),
-  conversationId: integer("conversation_id")
-    .references(() => conversations.id, { onDelete: "cascade" })
-    .notNull(),
-  
-  content: text("content").notNull(),
+  conversationId: uuid("conversation_id")
+      .references(() => conversations.id, { onDelete: "cascade" })
+      .notNull(),
+  query: text("query").notNull().$type<PrivateNonEmptyString>(),
+  content: text("content"),
   type: varchar("type", { 
     length: 50, 
     enum: messageTypeEnum 
   }).notNull(),
-  
-  // Metadata
   createdAt: timestamp("created_at").defaultNow().notNull(),
-  isSelected: boolean("is_selected").default(false),
-  
-  // Optional additional context
-  context: text("context"),
-  metadata: text("metadata"),
-
-  // Add these fields
-  suggestionsGenerated: boolean("suggestions_generated").default(false),
   responseGenerationTime: integer("response_generation_time"),
-  embeddingVector: text("embedding_vector"), // For semantic search
-  
-  // Optional fields for tracking engagement
-  viewCount: integer("view_count").default(0),
-  userRating: integer("user_rating"), // Optional rating of response quality
-});
+  isUserQuery: boolean("is_user_query").default(false),
+  flaggedByAi: boolean("flagged_by_ai").default(false),
+  flaggedByUser: boolean("flagged_by_user").default(false),
+})
 
-// Node Children (Junction Table)
+// junction table
 const nodeChildren = pgTable("node_children", {
   parentNodeId: uuid("parent_node_id")
     .references(() => conversationNodes.id, { onDelete: "cascade" })
@@ -80,60 +77,27 @@ const nodeChildren = pgTable("node_children", {
   childNodeId: uuid("child_node_id")
     .references(() => conversationNodes.id, { onDelete: "cascade" })
     .notNull(),
-  
-  // Ordering within siblings
   orderIndex: integer("order_index").notNull(),
 }, (table) => ([
   unique().on(table.parentNodeId, table.childNodeId),
   primaryKey({ columns: [table.parentNodeId, table.childNodeId] }),
-]));
+]))
 
-// Saved Topics Table
-const savedTopics = pgTable("saved_topics", {
-  id: serial("id").primaryKey(),
-  userId: integer("user_id")
-    .references(() => users.id, { onDelete: "cascade" })
-    .notNull(),
-  topic: varchar("topic", { length: 255 }).notNull(),
-  conversationId: integer("conversation_id")
-    .references(() => conversations.id, { onDelete: "set null" }),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
-
-// Tags Table
-const tags = pgTable("tags", {
-  id: serial("id").primaryKey(),
-  name: varchar("name", { length: 50 }).notNull().unique(),
-});
-
-// Conversation Tags (Junction Table)
-const conversationTags = pgTable("conversation_tags", {
-  conversationId: integer("conversation_id")
-    .references(() => conversations.id, { onDelete: "cascade" })
-    .notNull(),
-  tagId: integer("tag_id")
-    .references(() => tags.id, { onDelete: "cascade" })
-    .notNull(),
-}, (table) => ({
-  pk: primaryKey({ columns: [table.conversationId, table.tagId] }),
-}));
-
-// New table for managing suggested questions
-const suggestedQuestions = pgTable("suggested_questions", {
+const references = pgTable("references", {
   id: uuid("id").primaryKey().defaultRandom(),
   nodeId: uuid("node_id")
     .references(() => conversationNodes.id, { onDelete: "cascade" })
     .notNull(),
-  suggestedContent: text("suggested_content").notNull(),
-  wasSelected: boolean("was_selected").default(false),
-  suggestedOrder: integer("suggested_order").notNull(),
+  source: text("source").notNull(), // Source of the reference (e.g., URL, book, etc.)
+  title: varchar("title", { length: 255 }), // Title of the reference
+  content: text("content"), // Content snippet from the reference
+  relevanceScore: integer("relevance_score"), // Optional score for how relevant this reference is
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 // Relation Definitions
 const usersRelations = relations(users, ({ many }) => ({
   conversations: many(conversations),
-  savedTopics: many(savedTopics),
 }));
 
 const conversationsRelations = relations(conversations, ({ one, many }) => ({
@@ -142,8 +106,6 @@ const conversationsRelations = relations(conversations, ({ one, many }) => ({
     references: [users.id],
   }),
   nodes: many(conversationNodes),
-  savedTopics: many(savedTopics),
-  conversationTags: many(conversationTags),
 }));
 
 const conversationNodesRelations = relations(conversationNodes, ({ one, many }) => ({
@@ -151,53 +113,28 @@ const conversationNodesRelations = relations(conversationNodes, ({ one, many }) 
     fields: [conversationNodes.conversationId],
     references: [conversations.id],
   }),
-  parentRelations: many(nodeChildren, {
-    relationName: "child_nodes",
+  parent: one(nodeChildren, {
+    fields: [conversationNodes.id],
+    references: [nodeChildren.childNodeId]
   }),
-  childRelations: many(nodeChildren, {
-    relationName: "parent_nodes",
-  }),
-  suggestedQuestions: many(suggestedQuestions),
+  children: many(nodeChildren),
+  references: many(references),
 }));
 
 const nodeChildrenRelations = relations(nodeChildren, ({ one }) => ({
-  parentNode: one(conversationNodes, {
+  parent: one(conversationNodes, {
     fields: [nodeChildren.parentNodeId],
     references: [conversationNodes.id],
-    relationName: "child_nodes",
   }),
-  childNode: one(conversationNodes, {
+  child: one(conversationNodes, {
     fields: [nodeChildren.childNodeId],
     references: [conversationNodes.id],
-    relationName: "parent_nodes",
   }),
 }));
 
-const savedTopicsRelations = relations(savedTopics, ({ one }) => ({
-  user: one(users, {
-    fields: [savedTopics.userId],
-    references: [users.id],
-  }),
-  conversation: one(conversations, {
-    fields: [savedTopics.conversationId],
-    references: [conversations.id],
-  }),
-}));
-
-const conversationTagsRelations = relations(conversationTags, ({ one }) => ({
-  conversation: one(conversations, {
-    fields: [conversationTags.conversationId],
-    references: [conversations.id],
-  }),
-  tag: one(tags, {
-    fields: [conversationTags.tagId],
-    references: [tags.id],
-  }),
-}));
-
-const suggestedQuestionsRelations = relations(suggestedQuestions, ({ one }) => ({
-  parentNode: one(conversationNodes, {
-    fields: [suggestedQuestions.nodeId],
+const referencesRelations = relations(references, ({ one }) => ({
+  node: one(conversationNodes, {
+    fields: [references.nodeId],
     references: [conversationNodes.id],
   }),
 }));
@@ -211,29 +148,20 @@ type ConversationNode = typeof conversationNodes.$inferSelect;
 type NewConversationNode = typeof conversationNodes.$inferInsert;
 type NodeChild = typeof nodeChildren.$inferSelect;
 type NewNodeChild = typeof nodeChildren.$inferInsert;
-type SavedTopic = typeof savedTopics.$inferSelect;
-type NewSavedTopic = typeof savedTopics.$inferInsert;
-type Tag = typeof tags.$inferSelect;
-type NewTag = typeof tags.$inferInsert;
-type SuggestedQuestion = typeof suggestedQuestions.$inferSelect;
-type NewSuggestedQuestion = typeof suggestedQuestions.$inferInsert;
+type Reference = typeof references.$inferSelect
+type NewReference = typeof references.$inferInsert
 
 export {
   users,
   conversations,
   conversationNodes,
   nodeChildren,
-  savedTopics,
-  tags,
-  conversationTags,
-  suggestedQuestions,
   usersRelations,
   conversationsRelations,
   conversationNodesRelations,
   nodeChildrenRelations,
-  savedTopicsRelations,
-  conversationTagsRelations,
-  suggestedQuestionsRelations,
+  references,
+  referencesRelations
 };
 
 export type {
@@ -245,10 +173,6 @@ export type {
   NewConversationNode,
   NodeChild,
   NewNodeChild,
-  SavedTopic,
-  NewSavedTopic,
-  Tag,
-  NewTag,
-  SuggestedQuestion,
-  NewSuggestedQuestion,
+  Reference,
+  NewReference
 };
