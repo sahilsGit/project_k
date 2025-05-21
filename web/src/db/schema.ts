@@ -3,139 +3,150 @@ import {
   pgTable,
   varchar,
   integer,
-  serial,
   text,
   timestamp,
   uuid,
   boolean,
-  primaryKey,
-  unique,
 } from "drizzle-orm/pg-core";
 
 // Enum for message types
 const messageTypeEnum = [
-  "root_query",  
-  "user_query",  
-  "suggested_query", 
+  "root_query",
+  "user_query",
+  "suggested_query",
 ] as const;
 
 /**
  * DO NOT EXPORT
- * 
+ *
  */
 type PrivateNonEmptyString = string & { __nonEmptyStringBrand: unknown };
 
 export function toNonEmptyString(value: string): PrivateNonEmptyString {
-  if (!value || value.trim() === '') {
-    throw new Error('String cannot be empty');
+  if (!value || value.trim() === "") {
+    throw new Error("String cannot be empty");
   }
   return value as PrivateNonEmptyString;
 }
 
 const users = pgTable("users", {
-  id: serial("id").primaryKey(),
+  id: uuid("id").primaryKey().defaultRandom(),
   email: varchar("email", { length: 255 }).notNull().unique(),
   name: varchar("name", { length: 100 }).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-const conversations = pgTable("conversations", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  userId: integer("user_id")
-      .references(() => users.id, { onDelete: "cascade" })
-      .notNull(),
-  title: varchar("title", { length: 255 }).notNull(),
-  rootNodeId: uuid("root_node_id"), 
-  isInitialized: boolean("is_initialized").default(false).notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-})
-
-const conversationNodes = pgTable("conversation_nodes", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  conversationId: uuid("conversation_id")
-      .references(() => conversations.id, { onDelete: "cascade" })
-      .notNull(),
-  query: text("query").notNull().$type<PrivateNonEmptyString>(),
-  content: text("content"),
-  type: varchar("type", { 
-    length: 50, 
-    enum: messageTypeEnum 
-  }).notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  responseGenerationTime: integer("response_generation_time"),
-  isUserQuery: boolean("is_user_query").default(false),
-  flaggedByAi: boolean("flagged_by_ai").default(false),
-  flaggedByUser: boolean("flagged_by_user").default(false),
-})
-
-// junction table
-const nodeChildren = pgTable("node_children", {
-  parentNodeId: uuid("parent_node_id")
-    .references(() => conversationNodes.id, { onDelete: "cascade" })
-    .notNull(),
-  childNodeId: uuid("child_node_id")
-    .references(() => conversationNodes.id, { onDelete: "cascade" })
-    .notNull(),
-  orderIndex: integer("order_index").notNull(),
-}, (table) => ([
-  unique().on(table.parentNodeId, table.childNodeId),
-  primaryKey({ columns: [table.parentNodeId, table.childNodeId] }),
-]))
-
-const references = pgTable("references", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  nodeId: uuid("node_id")
-    .references(() => conversationNodes.id, { onDelete: "cascade" })
-    .notNull(),
-  source: text("source").notNull(), // Source of the reference (e.g., URL, book, etc.)
-  title: varchar("title", { length: 255 }), // Title of the reference
-  content: text("content"), // Content snippet from the reference
-  relevanceScore: integer("relevance_score"), // Optional score for how relevant this reference is
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
-
-// Relation Definitions
 const usersRelations = relations(users, ({ many }) => ({
   conversations: many(conversations),
 }));
+
+const conversations = pgTable("conversations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .references(() => users.id, { onDelete: "cascade" })
+    .notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  rootNodeId: uuid("root_node_id"),
+  isInitialized: boolean("is_initialized").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
 
 const conversationsRelations = relations(conversations, ({ one, many }) => ({
   user: one(users, {
     fields: [conversations.userId],
     references: [users.id],
   }),
+  rootNode: one(conversationNodes, {
+    fields: [conversations.rootNodeId],
+    references: [conversationNodes.id],
+  }),
   nodes: many(conversationNodes),
 }));
 
-const conversationNodesRelations = relations(conversationNodes, ({ one, many }) => ({
-  conversation: one(conversations, {
-    fields: [conversationNodes.conversationId],
-    references: [conversations.id],
-  }),
-  parent: one(nodeChildren, {
-    fields: [conversationNodes.id],
-    references: [nodeChildren.childNodeId]
-  }),
-  children: many(nodeChildren),
-  references: many(references),
-}));
+const conversationNodes = pgTable("conversation_nodes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  conversationId: uuid("conversation_id")
+    .references(() => conversations.id, { onDelete: "cascade" })
+    .notNull(),
+  parentNodeId: uuid("parent_node_id"),
+  query: varchar("query", { length: 255 }).$type<PrivateNonEmptyString>(),
+  summary: varchar("summary", { length: 255 }),
+  contentId: uuid("content_id"),
+  type: varchar("type", {
+    length: 50,
+    enum: messageTypeEnum,
+  }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  responseGenerationTime: integer("response_generation_time"),
+  isUserQuery: boolean("is_user_query").default(false),
+  flaggedByAi: boolean("flagged_by_ai").default(false),
+  flaggedByUser: boolean("flagged_by_user").default(false),
+});
 
-const nodeChildrenRelations = relations(nodeChildren, ({ one }) => ({
-  parent: one(conversationNodes, {
-    fields: [nodeChildren.parentNodeId],
-    references: [conversationNodes.id],
-  }),
-  child: one(conversationNodes, {
-    fields: [nodeChildren.childNodeId],
-    references: [conversationNodes.id],
-  }),
-}));
+const conversationContents = pgTable("conversation_content", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  nodeId: uuid("node_id")
+    .references(() => conversationNodes.id, { onDelete: "cascade" })
+    .notNull()
+    .unique(),
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+const conversationNodesRelations = relations(
+  conversationNodes,
+  ({ one, many }) => ({
+    conversation: one(conversations, {
+      fields: [conversationNodes.conversationId],
+      references: [conversations.id],
+    }),
+    parent: one(conversationNodes, {
+      fields: [conversationNodes.id],
+      references: [conversationNodes.id],
+      relationName: "parentChild",
+    }),
+    children: many(conversationNodes, {
+      relationName: "parentChild",
+    }),
+    rootFor: one(conversations, {
+      fields: [conversationNodes.id],
+      references: [conversations.rootNodeId],
+    }),
+    content: one(conversationContents, {
+      fields: [conversationNodes.id],
+      references: [conversationContents.nodeId],
+    }),
+  })
+);
+
+const conversationContentRelations = relations(
+  conversationContents,
+  ({ one, many }) => ({
+    node: one(conversationNodes, {
+      fields: [conversationContents.nodeId],
+      references: [conversationNodes.id],
+    }),
+    references: many(references),
+  })
+);
+
+const references = pgTable("references", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  contentId: uuid("content_id")
+    .references(() => conversationContents.id, { onDelete: "cascade" })
+    .notNull(),
+  source: text("source").notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  content: varchar("title", { length: 255 }).notNull(),
+  relevanceScore: integer("relevance_score"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
 
 const referencesRelations = relations(references, ({ one }) => ({
-  node: one(conversationNodes, {
-    fields: [references.nodeId],
-    references: [conversationNodes.id],
+  content: one(conversationContents, {
+    fields: [references.contentId],
+    references: [conversationContents.id],
   }),
 }));
 
@@ -146,22 +157,22 @@ type Conversation = typeof conversations.$inferSelect;
 type NewConversation = typeof conversations.$inferInsert;
 type ConversationNode = typeof conversationNodes.$inferSelect;
 type NewConversationNode = typeof conversationNodes.$inferInsert;
-type NodeChild = typeof nodeChildren.$inferSelect;
-type NewNodeChild = typeof nodeChildren.$inferInsert;
-type Reference = typeof references.$inferSelect
-type NewReference = typeof references.$inferInsert
+type ConversationContent = typeof conversationContents.$inferSelect;
+type NewConversationContent = typeof conversationContents.$inferInsert;
+type Reference = typeof references.$inferSelect;
+type NewReference = typeof references.$inferInsert;
 
 export {
   users,
   conversations,
   conversationNodes,
-  nodeChildren,
   usersRelations,
   conversationsRelations,
   conversationNodesRelations,
-  nodeChildrenRelations,
   references,
-  referencesRelations
+  referencesRelations,
+  conversationContents,
+  conversationContentRelations,
 };
 
 export type {
@@ -171,8 +182,8 @@ export type {
   NewConversation,
   ConversationNode,
   NewConversationNode,
-  NodeChild,
-  NewNodeChild,
   Reference,
-  NewReference
+  NewReference,
+  ConversationContent,
+  NewConversationContent,
 };

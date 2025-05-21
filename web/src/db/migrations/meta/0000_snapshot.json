@@ -1,9 +1,70 @@
 {
-  "id": "8d2047d0-3a91-4338-8ae2-cf630bc7b9c2",
+  "id": "5abb8405-9e5c-4b1c-858a-07eeb4ca194e",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
+    "public.conversation_content": {
+      "name": "conversation_content",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "node_id": {
+          "name": "node_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "content": {
+          "name": "content",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "conversation_content_node_id_conversation_nodes_id_fk": {
+          "name": "conversation_content_node_id_conversation_nodes_id_fk",
+          "tableFrom": "conversation_content",
+          "tableTo": "conversation_nodes",
+          "columnsFrom": [
+            "node_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "conversation_content_node_id_unique": {
+          "name": "conversation_content_node_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "node_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.conversation_nodes": {
       "name": "conversation_nodes",
       "schema": "",
@@ -21,15 +82,27 @@
           "primaryKey": false,
           "notNull": true
         },
+        "parent_node_id": {
+          "name": "parent_node_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "query": {
           "name": "query",
-          "type": "text",
+          "type": "varchar(255)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
-        "content": {
-          "name": "content",
-          "type": "text",
+        "summary": {
+          "name": "summary",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "content_id": {
+          "name": "content_id",
+          "type": "uuid",
           "primaryKey": false,
           "notNull": false
         },
@@ -109,7 +182,7 @@
         },
         "user_id": {
           "name": "user_id",
-          "type": "integer",
+          "type": "uuid",
           "primaryKey": false,
           "notNull": true
         },
@@ -123,7 +196,14 @@
           "name": "root_node_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
+        },
+        "is_initialized": {
+          "name": "is_initialized",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
         },
         "created_at": {
           "name": "created_at",
@@ -162,81 +242,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.node_children": {
-      "name": "node_children",
-      "schema": "",
-      "columns": {
-        "parent_node_id": {
-          "name": "parent_node_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "child_node_id": {
-          "name": "child_node_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "order_index": {
-          "name": "order_index",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "node_children_parent_node_id_conversation_nodes_id_fk": {
-          "name": "node_children_parent_node_id_conversation_nodes_id_fk",
-          "tableFrom": "node_children",
-          "tableTo": "conversation_nodes",
-          "columnsFrom": [
-            "parent_node_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "node_children_child_node_id_conversation_nodes_id_fk": {
-          "name": "node_children_child_node_id_conversation_nodes_id_fk",
-          "tableFrom": "node_children",
-          "tableTo": "conversation_nodes",
-          "columnsFrom": [
-            "child_node_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "node_children_parent_node_id_child_node_id_pk": {
-          "name": "node_children_parent_node_id_child_node_id_pk",
-          "columns": [
-            "parent_node_id",
-            "child_node_id"
-          ]
-        }
-      },
-      "uniqueConstraints": {
-        "node_children_parent_node_id_child_node_id_unique": {
-          "name": "node_children_parent_node_id_child_node_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "parent_node_id",
-            "child_node_id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.references": {
       "name": "references",
       "schema": "",
@@ -248,8 +253,8 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "node_id": {
-          "name": "node_id",
+        "content_id": {
+          "name": "content_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
@@ -264,13 +269,7 @@
           "name": "title",
           "type": "varchar(255)",
           "primaryKey": false,
-          "notNull": false
-        },
-        "content": {
-          "name": "content",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "relevance_score": {
           "name": "relevance_score",
@@ -288,12 +287,12 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "references_node_id_conversation_nodes_id_fk": {
-          "name": "references_node_id_conversation_nodes_id_fk",
+        "references_content_id_conversation_content_id_fk": {
+          "name": "references_content_id_conversation_content_id_fk",
           "tableFrom": "references",
-          "tableTo": "conversation_nodes",
+          "tableTo": "conversation_content",
           "columnsFrom": [
-            "node_id"
+            "content_id"
           ],
           "columnsTo": [
             "id"
@@ -314,9 +313,10 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "serial",
+          "type": "uuid",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "default": "gen_random_uuid()"
         },
         "email": {
           "name": "email",
