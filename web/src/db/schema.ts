@@ -150,7 +150,6 @@ const referencesRelations = relations(references, ({ one }) => ({
   }),
 }));
 
-// Type Exports
 type User = typeof users.$inferSelect;
 type NewUser = typeof users.$inferInsert;
 type Conversation = typeof conversations.$inferSelect;
